@@ -1,0 +1,150 @@
+FROM ubuntu:latest
+
+# Update package lists and install necessary dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        xserver-xephyr \
+        xorg \
+        xserver-xorg-core \
+        x11-xserver-utils \
+        xorgxrdp \
+        xfce4 \
+        xfce4-terminal \
+        network-manager \
+        sudo \
+        openssh-server \
+        xrdp \
+        pulseaudio \
+        pulseaudio-utils \
+        dbus \
+        dbus-x11 \
+        gnome-keyring \
+        libgl1-mesa-dri \
+        libgl1-mesa-dev \
+        libx11-6 \
+        libxext6 \
+        libxtst6 \
+        libdbus-1-3 \
+        fonts-firacode \
+        fontconfig \
+        samba \
+        smbclient \
+        nano \
+        supervisor \
+    && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+
+# Configure XRDP
+RUN mkdir  -p /etc/xdm/
+RUN echo "xrdp-sesman" >> /etc/xdm/xrdp.ini
+RUN echo "port=3389" >> /etc/xdm/xrdp.ini
+RUN echo "listenaddress=0.0.0.0">> /etc/xdm/xrdp.ini
+
+# Enable Samba
+RUN apt-get install -y samba
+
+# Configure Samba (basic setup)
+RUN mkdir -p /home/kdeuser/share/samba
+RUN chmod 777 /home/kdeuser/share/samba
+
+# Create a user with bash shell and add to sudo group
+RUN useradd -m -s /bin/bash -G sudo kdeuser
+
+# Set password for the user (replace 'password' with a strong password)
+RUN echo "kdeuser:password" | chpasswd
+
+# Ensure XFCE starts for xrdp sessions
+RUN echo "startxfce4" > /home/kdeuser/.xsession && chown kdeuser:kdeuser /home/kdeuser/.xsession
+
+# Make xrdp start XFCE by default
+RUN if [ -f /etc/xrdp/startwm.sh ]; then sed -i 's|/bin/sh /etc/X11/Xsession|startxfce4|' /etc/xrdp/startwm.sh || true; fi
+
+# Create runtime dirs and files required by sshd, X and xrdp and set ownerships
+ENV CHANSRV_LOG_PATH=/var/log/xrdp
+ENV HOME=/home/kdeuser
+
+# Create runtime dirs and files required by sshd, X and xrdp and set ownerships
+RUN mkdir -p /run/sshd /tmp/.X11-unix /var/log/xrdp /var/run/xrdp && \
+    chmod 0755 /run/sshd && \
+    chmod 1777 /tmp/.X11-unix && \
+    mkdir -p /var/log/samba && \
+    touch /home/kdeuser/.Xauthority && chown kdeuser:kdeuser /home/kdeuser/.Xauthority && \
+    chown -R root:root /run/sshd || true && \
+    chown -R root:root /var/log/xrdp || true && chmod 0777 /var/log/xrdp || true && \
+    chown -R root:root /var/run/xrdp || true && chmod 0777 /var/run/xrdp || true && \
+    chown -R kdeuser:kdeuser /home/kdeuser && chmod 700 /home/kdeuser || true
+
+# Configure Samba
+RUN mkdir -p /etc/samba
+RUN echo "[global] \n\tprotocol = samba \n\tserver string = Samba Server %v \n\tworkgroup = WORKGROUP" > /etc/samba/smb.conf
+
+# Set Samba password for the user
+RUN echo "vfs objects = samba_afs,samba_lanman" >> /etc/samba/smb.conf
+
+# Set up SSH for remote access (optional, but recommended)
+RUN apt-get install -y openssh-server
+
+# Configure SSH (basic setup)
+RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+RUN sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config
+RUN sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+# Create a user for SSH access (recommended)
+RUN useradd -m remoteuser
+RUN echo "remoteuser:password" | chpasswd  # Replace 'password' with a strong password
+
+# Set up SSH to allow root login (for initial setup only - disable in production!)
+RUN echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+
+# Configure supervisord to manage services in the foreground
+RUN mkdir -p /etc/supervisor
+RUN cat > /etc/supervisor/supervisord.conf <<'EOF'
+[supervisord]
+nodaemon=true
+
+[program:dbus]
+command=/usr/bin/dbus-daemon --system --nofork --nopidfile
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+autorestart=true
+
+[program:sshd]
+command=/usr/sbin/sshd -D
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+autorestart=true
+
+
+[program:xrdp-sesman]
+command=/usr/sbin/xrdp-sesman --nodaemon
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser"
+autorestart=true
+
+[program:xrdp]
+command=/usr/sbin/xrdp --nodaemon
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser"
+autorestart=true
+EOF
+
+# Note: keep running as root so supervisord can manage services
+
+# Expose port 3389 for XRDP
+EXPOSE 3389
+
+# Start supervisord to run services in foreground
+CMD ["/usr/bin/supervisord","-n","-c","/etc/supervisor/supervisord.conf"]
+
