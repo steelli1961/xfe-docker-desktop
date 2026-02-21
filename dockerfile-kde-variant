@@ -1,0 +1,155 @@
+FROM ubuntu:22.04
+
+# Basic utilities and X server
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates \
+    wget \
+    gnupg \
+    apt-transport-https \
+    xorg \
+    x11-xserver-utils \
+    xserver-xorg-core \
+    xserver-xorg-video-dummy \
+    xorgxrdp \
+    xrdp \
+    dbus-x11 \
+    dbus \
+    sudo \
+    pulseaudio \
+    pulseaudio-utils \
+    fonts-firacode \
+    fontconfig \
+    supervisor \
+    network-manager \
+    samba \
+    smbclient \
+    nano \
+    libgl1-mesa-dri \
+    libgl1-mesa-dev \
+    libx11-6 \
+    libxext6 \
+    libxtst6 \
+    libdbus-1-3 \
+    kde-plasma-desktop \
+    plasma-desktop \
+    kde-baseapps \
+    epiphany-browser \
+    libwebkit2gtk-4.0-37 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user
+RUN useradd -m -s /bin/bash -G sudo kdeuser && echo "kdeuser:password" | chpasswd
+ENV HOME=/home/kdeuser
+
+# Configure X session to start KDE for the user
+RUN echo "exec startplasma-x11" > /home/kdeuser/.xsession && chown kdeuser:kdeuser /home/kdeuser/.xsession
+
+# Make xrdp start KDE by default if startwm.sh exists
+RUN if [ -f /etc/xrdp/startwm.sh ]; then sed -i 's|/bin/sh /etc/X11/Xsession|exec startplasma-x11|' /etc/xrdp/startwm.sh || true; fi
+
+# Ensure dbus runtime dir exists and create missing system users to satisfy bus config
+RUN mkdir -p /run/dbus && chown root:root /run/dbus || true
+RUN id whoopsie 2>/dev/null || useradd --system --no-create-home --shell /usr/sbin/nologin whoopsie || true
+
+# Install Google Chrome
+RUN wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/google-chrome.deb || apt-get -f install -y \
+    && rm -f /tmp/google-chrome.deb && rm -rf /var/lib/apt/lists/*
+
+# Install code-server (web-based VS Code)
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
+# Configure Samba (minimal)
+RUN mkdir -p /home/kdeuser/share/samba && chmod 777 /home/kdeuser/share/samba
+RUN mkdir -p /etc/samba && echo "[global]\n\tworkgroup = WORKGROUP\n\tserver string = Samba Server %v" > /etc/samba/smb.conf
+
+# Provide a simple xrdp Xorg config using the dummy driver so Xorg finds a screen
+RUN mkdir -p /etc/X11/xrdp && cat > /etc/X11/xrdp/xorg.conf <<'XCONF'
+Section "Device"
+    Identifier "XRDPR0"
+    Driver "dummy"
+    VideoRam 256000
+EndSection
+
+Section "Monitor"
+    Identifier "Monitor0"
+    HorizSync 28-80
+    VertRefresh 48-75
+EndSection
+
+Section "Screen"
+    Identifier "Screen0"
+    Device "XRDPR0"
+    Monitor "Monitor0"
+    DefaultDepth 24
+    SubSection "Display"
+        Depth 24
+        Modes "1920x1080"
+    EndSubSection
+EndSection
+XCONF
+
+# SSH (optional)
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server && rm -rf /var/lib/apt/lists/*
+RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config || true
+RUN useradd -m remoteuser && echo "remoteuser:password" | chpasswd
+
+# Create runtime dirs and set ownerships
+RUN mkdir -p /run/sshd /tmp/.X11-unix /var/log/xrdp /var/run/xrdp /var/log/samba && \
+    chmod 0755 /run/sshd && chmod 1777 /tmp/.X11-unix && touch /home/kdeuser/.Xauthority && chown kdeuser:kdeuser /home/kdeuser/.Xauthority && \
+    chown -R root:root /run/sshd || true && chown -R root:root /var/log/xrdp || true && chmod 0777 /var/log/xrdp || true && \
+    chown -R root:root /var/run/xrdp || true && chmod 0777 /var/run/xrdp || true && chown -R kdeuser:kdeuser /home/kdeuser && chmod 700 /home/kdeuser || true
+
+# Supervisor configuration to run services
+RUN mkdir -p /etc/supervisor
+RUN cat > /etc/supervisor/supervisord.conf <<'EOF'
+[supervisord]
+nodaemon=true
+
+[program:dbus]
+command=/usr/bin/dbus-daemon --system --nofork --nopidfile
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+autorestart=true
+
+[program:sshd]
+command=/usr/sbin/sshd -D
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+autorestart=true
+
+[program:xrdp-sesman]
+command=/usr/sbin/xrdp-sesman --nodaemon
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser"
+autorestart=true
+
+[program:xrdp]
+command=/usr/sbin/xrdp --nodaemon
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser"
+autorestart=true
+
+[program:code-server]
+command=/usr/bin/code-server --bind-addr 0.0.0.0:8080
+user=kdeuser
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+environment=PASSWORD="password",HOME="/home/kdeuser"
+autorestart=true
+EOF
+
+EXPOSE 3389
+
+CMD ["/usr/bin/supervisord","-n","-c","/etc/supervisor/supervisord.conf"]
