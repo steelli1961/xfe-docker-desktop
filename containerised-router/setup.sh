@@ -12,7 +12,7 @@ ROUTER_IMAGE="network-router:latest"
 CLIENT_IMAGE="network-client:latest"
 NETWORK_ONE="network-one"
 NETWORK_TWO="network-two"
-BRIDGE_NETWORK="bridge"
+BRIDGE_NETWORK="bridge-net"
 
 # Function to print colored output
 print_status() {
@@ -120,6 +120,7 @@ start_clients() {
         --name client1 \
         --network $NETWORK_ONE \
         --hostname client1 \
+        --cap-add=NET_ADMIN \
         $CLIENT_IMAGE || {
         print_error "Failed to start client1"
         exit 1
@@ -129,12 +130,32 @@ start_clients() {
         --name client2 \
         --network $NETWORK_TWO \
         --hostname client2 \
+        --cap-add=NET_ADMIN \
         $CLIENT_IMAGE || {
         print_error "Failed to start client2"
         exit 1
     }
     
     print_status "Client containers started"
+}
+
+# Configure routes on clients for cross-network communication
+configure_routes() {
+    print_status "Configuring routes for cross-network communication..."
+    
+    # Add route on client1 to reach network-two through router
+    docker exec client1 route add -net 172.19.0.0 netmask 255.255.0.0 gw 172.18.0.2 || {
+        print_error "Failed to add route on client1"
+        exit 1
+    }
+    
+    # Add route on client2 to reach network-one through router
+    docker exec client2 route add -net 172.18.0.0 netmask 255.255.0.0 gw 172.19.0.2 || {
+        print_error "Failed to add route on client2"
+        exit 1
+    }
+    
+    print_status "Routes configured successfully"
 }
 
 # Display network information
@@ -200,6 +221,7 @@ main() {
     create_networks
     start_router
     start_clients
+    configure_routes
     show_info
     
     echo ""

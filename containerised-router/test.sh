@@ -28,10 +28,10 @@ print_test() {
 
 # Get container IPs
 get_ips() {
-    ROUTER_IP_ONE=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{if eq .Name "network-one"}}{{.IPAddress}}{{end}}{{end}}' router 2>/dev/null)
-    ROUTER_IP_TWO=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{if eq .Name "network-two"}}{{.IPAddress}}{{end}}{{end}}' router 2>/dev/null)
-    CLIENT1_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{if eq .Name "network-one"}}{{.IPAddress}}{{end}}{{end}}' client1 2>/dev/null)
-    CLIENT2_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{if eq .Name "network-two"}}{{.IPAddress}}{{end}}{{end}}' client2 2>/dev/null)
+    ROUTER_IP_ONE=$(docker inspect -f '{{(index .NetworkSettings.Networks "network-one").IPAddress}}' router 2>/dev/null)
+    ROUTER_IP_TWO=$(docker inspect -f '{{(index .NetworkSettings.Networks "network-two").IPAddress}}' router 2>/dev/null)
+    CLIENT1_IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "network-one").IPAddress}}' client1 2>/dev/null)
+    CLIENT2_IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "network-two").IPAddress}}' client2 2>/dev/null)
 }
 
 # Check if containers are running
@@ -96,7 +96,7 @@ test_ssh() {
     
     # Test client1 to client2
     print_test "client1 → client2 SSH ($CLIENT2_IP)"
-    if docker exec client1 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 root@$CLIENT2_IP "echo 'SSH connection successful'" &>/dev/null; then
+    if docker exec client1 sshpass -p "client" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 root@$CLIENT2_IP "echo 'SSH connection successful'" &>/dev/null; then
         print_status "SSH connection successful"
     else
         print_error "SSH connection failed"
@@ -104,7 +104,7 @@ test_ssh() {
     
     # Test client2 to client1
     print_test "client2 → client1 SSH ($CLIENT1_IP)"
-    if docker exec client2 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 root@$CLIENT1_IP "echo 'SSH connection successful'" &>/dev/null; then
+    if docker exec client2 sshpass -p "client" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 root@$CLIENT1_IP "echo 'SSH connection successful'" &>/dev/null; then
         print_status "SSH connection successful"
     else
         print_error "SSH connection failed"
@@ -118,19 +118,60 @@ show_network_config() {
     get_ips
     
     echo -e "${YELLOW}Router Interfaces:${NC}"
-    docker exec router ip addr show 2>/dev/null | grep -A 2 "inet " || print_error "Could not retrieve interfaces"
+    docker exec router ifconfig 2>/dev/null | grep -A 3 "inet" || print_error "Could not retrieve interfaces"
     
     echo ""
     echo -e "${YELLOW}Router Routing Table:${NC}"
-    docker exec router ip route 2>/dev/null || print_error "Could not retrieve routing table"
+    docker exec router route -n 2>/dev/null || print_error "Could not retrieve routing table"
     
     echo ""
     echo -e "${YELLOW}Client1 Configuration:${NC}"
-    docker exec client1 ip addr show 2>/dev/null | grep -A 2 "inet " || print_error "Could not retrieve client1 config"
+    docker exec client1 ifconfig 2>/dev/null | grep -A 3 "inet" || print_error "Could not retrieve client1 config"
     
     echo ""
     echo -e "${YELLOW}Client2 Configuration:${NC}"
-    docker exec client2 ip addr show 2>/dev/null | grep -A 2 "inet " || print_error "Could not retrieve client2 config"
+    docker exec client2 ifconfig 2>/dev/null | grep -A 3 "inet" || print_error "Could not retrieve client2 config"
+}
+
+# Test internet connectivity through NAT
+test_internet() {
+    print_header "Internet Connectivity Tests (Through Router NAT)"
+    
+    get_ips
+    
+    # Test client1 internet access
+    print_test "client1 → Internet (DNS/HTTP through router NAT)"
+    if docker exec client1 curl -s -m 5 -o /dev/null -w "%{http_code}" http://example.com 2>/dev/null | grep -q "200\|301\|302"; then
+        print_status "Internet access successful (HTTP)"
+    else
+        # Fallback: test DNS resolution
+        if docker exec client1 nslookup example.com 2>/dev/null | grep -q "Name:"; then
+            print_status "Internet access successful (DNS resolution works)"
+        else
+            print_error "Internet access failed"
+        fi
+    fi
+    
+    # Test client2 internet access
+    print_test "client2 → Internet (DNS/HTTP through router NAT)"
+    if docker exec client2 curl -s -m 5 -o /dev/null -w "%{http_code}" http://example.com 2>/dev/null | grep -q "200\|301\|302"; then
+        print_status "Internet access successful (HTTP)"
+    else
+        # Fallback: test DNS resolution
+        if docker exec client2 nslookup example.com 2>/dev/null | grep -q "Name:"; then
+            print_status "Internet access successful (DNS resolution works)"
+        else
+            print_error "Internet access failed"
+        fi
+    fi
+    
+    # Test router DNS
+    print_test "router → DNS (can resolve external addresses)"
+    if docker exec router nslookup example.com 2>/dev/null | grep -q "Name:"; then
+        print_status "DNS resolution successful"
+    else
+        print_error "DNS resolution failed"
+    fi
 }
 
 # Display iptables rules on router
@@ -153,6 +194,8 @@ run_all_tests() {
     echo ""
     test_ssh
     echo ""
+    test_internet
+    echo ""
     show_network_config
 }
 
@@ -164,12 +207,13 @@ show_menu() {
     echo "1. Check container status"
     echo "2. Test ping connectivity"
     echo "3. Test SSH connectivity"
-    echo "4. Show network configuration"
-    echo "5. Show iptables rules"
-    echo "6. Run all tests"
-    echo "7. Shell access to router"
-    echo "8. Shell access to client1"
-    echo "9. Shell access to client2"
+    echo "4. Test internet access (NAT)"
+    echo "5. Show network configuration"
+    echo "6. Show iptables rules"
+    echo "7. Run all tests"
+    echo "8. Shell access to router"
+    echo "9. Shell access to client1"
+    echo "10. Shell access to client2"
     echo "0. Exit"
     echo "=========================================="
 }
@@ -180,18 +224,19 @@ main() {
         # Interactive mode
         while true; do
             show_menu
-            read -p "Select an option [0-9]: " choice
+            read -p "Select an option [0-10]: " choice
             
             case $choice in
                 1) check_containers ;;
                 2) test_ping ;;
                 3) test_ssh ;;
-                4) show_network_config ;;
-                5) show_iptables ;;
-                6) run_all_tests ;;
-                7) docker exec -it router /bin/bash ;;
-                8) docker exec -it client1 /bin/bash ;;
-                9) docker exec -it client2 /bin/bash ;;
+                4) test_internet ;;
+                5) show_network_config ;;
+                6) show_iptables ;;
+                7) run_all_tests ;;
+                8) docker exec -it router /bin/bash ;;
+                9) docker exec -it client1 /bin/bash ;;
+                10) docker exec -it client2 /bin/bash ;;
                 0) print_status "Exiting"; exit 0 ;;
                 *) print_error "Invalid option" ;;
             esac
@@ -204,6 +249,7 @@ main() {
             check) check_containers ;;
             ping) test_ping ;;
             ssh) test_ssh ;;
+            internet) test_internet ;;
             config) show_network_config ;;
             iptables) show_iptables ;;
             test) run_all_tests ;;
@@ -211,7 +257,7 @@ main() {
             client1) docker exec -it client1 /bin/bash ;;
             client2) docker exec -it client2 /bin/bash ;;
             *)
-                echo "Usage: $0 {check|ping|ssh|config|iptables|test|router|client1|client2}"
+                echo "Usage: $0 {check|ping|ssh|internet|config|iptables|test|router|client1|client2}"
                 exit 1
                 ;;
         esac

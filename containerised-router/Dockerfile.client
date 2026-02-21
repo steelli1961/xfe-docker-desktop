@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     curl \
     vim \
+    sshpass \
     && rm -rf /var/lib/apt/lists/*
 
 # Setup SSH

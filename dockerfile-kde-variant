@@ -1,7 +1,13 @@
 FROM ubuntu:22.04
 
+# Set locale
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+
 # Basic utilities and X server
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    locales \
     ca-certificates \
     wget \
     gnupg \
@@ -33,9 +39,14 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     kde-plasma-desktop \
     plasma-desktop \
     kde-baseapps \
+    policykit-1 \
+    policykit-1-gnome \
     epiphany-browser \
     libwebkit2gtk-4.0-37 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Generate locale
+RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 
 # Create a non-root user
 RUN useradd -m -s /bin/bash -G sudo kdeuser && echo "kdeuser:password" | chpasswd
@@ -44,8 +55,56 @@ ENV HOME=/home/kdeuser
 # Configure X session to start KDE for the user
 RUN echo "exec startplasma-x11" > /home/kdeuser/.xsession && chown kdeuser:kdeuser /home/kdeuser/.xsession
 
-# Make xrdp start KDE by default if startwm.sh exists
-RUN if [ -f /etc/xrdp/startwm.sh ]; then sed -i 's|/bin/sh /etc/X11/Xsession|exec startplasma-x11|' /etc/xrdp/startwm.sh || true; fi
+# Create proper startwm.sh for xrdp that starts KDE Plasma
+RUN cat > /etc/xrdp/startwm.sh <<'STARTWM'
+#!/bin/sh
+# XfreeRDP startup script for KDE Plasma
+if [ -r /etc/profile ]; then
+    . /etc/profile
+fi
+
+export LANG=en_US.UTF-8
+export DISPLAY=:10
+export XRDPSCREENSIZE=1920x1080
+
+# Ensure D-Bus is available
+if [ ! -d /run/dbus ]; then
+    mkdir -p /run/dbus
+fi
+
+# Start D-Bus session (if not already running)
+if [ ! -f /run/dbus/system_bus_socket ]; then
+    /usr/bin/dbus-daemon --system --nofork &
+    sleep 1
+fi
+
+exec startplasma-x11
+STARTWM
+RUN chmod +x /etc/xrdp/startwm.sh
+
+# Configure xrdp.ini with proper session settings
+RUN cat > /etc/xrdp/xrdp.ini <<'XRDPINI'
+[global]
+; xrdp configuration
+
+[Xvnc]
+name=Xvnc
+lib=libvnc.so
+username=ask
+password=ask
+ip=127.0.0.1
+port=-1
+
+[Xorg]
+name=Xorg
+lib=libxorg.so
+username=ask
+password=ask
+ip=127.0.0.1
+port=-1
+; Use sesman to spawn X session
+XRDPINI
+RUN chmod 644 /etc/xrdp/xrdp.ini
 
 # Ensure dbus runtime dir exists and create missing system users to satisfy bus config
 RUN mkdir -p /run/dbus && chown root:root /run/dbus || true
@@ -128,10 +187,11 @@ Section "Screen"
     EndSubSection
 EndSection
 XCONF
-
-# SSH (optional)
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server && rm -rf /var/lib/apt/lists/*
-RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config || true
+/run/user/1000 && \
+    chmod 0755 /run/sshd && chmod 1777 /tmp/.X11-unix && touch /home/kdeuser/.Xauthority && chown kdeuser:kdeuser /home/kdeuser/.Xauthority && \
+    chown -R root:root /run/sshd || true && chown -R root:root /var/log/xrdp || true && chmod 0777 /var/log/xrdp || true && \
+    chown -R root:root /var/run/xrdp || true && chmod 0777 /var/run/xrdp || true && chown -R kdeuser:kdeuser /home/kdeuser && chmod 700 /home/kdeuser || true && \
+    mkdir -p /var/run/dbus && chmod 0755 /var/run/dbus && chown root:root /var/run/dbusfig || true
 RUN useradd -m remoteuser && echo "remoteuser:password" | chpasswd
 
 # Create runtime dirs and set ownerships
@@ -153,6 +213,7 @@ redirect_stderr=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 autorestart=true
+priority=1
 
 [program:sshd]
 command=/usr/sbin/sshd -D
@@ -161,6 +222,7 @@ redirect_stderr=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 autorestart=true
+priority=2
 
 [program:xrdp-sesman]
 command=/usr/sbin/xrdp-sesman --nodaemon
@@ -168,8 +230,9 @@ user=root
 redirect_stderr=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
-environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser"
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser",LANG="en_US.UTF-8"
 autorestart=true
+priority=3
 
 [program:xrdp]
 command=/usr/sbin/xrdp --nodaemon
@@ -177,8 +240,9 @@ user=root
 redirect_stderr=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
-environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser"
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser",LANG="en_US.UTF-8"
 autorestart=true
+priority=4
 
 [program:code-server]
 command=/usr/bin/code-server --bind-addr 0.0.0.0:8080
@@ -186,8 +250,9 @@ user=kdeuser
 redirect_stderr=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
-environment=PASSWORD="password",HOME="/home/kdeuser"
+environment=PASSWORD="password",HOME="/home/kdeuser",LANG="en_US.UTF-8"
 autorestart=true
+priority=5
 EOF
 
 EXPOSE 3389
