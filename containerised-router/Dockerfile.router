@@ -1,0 +1,28 @@
+FROM ubuntu:22.04
+
+# Install necessary tools
+RUN apt-get update && apt-get install -y \
+    iproute2 \
+    iptables \
+    openssh-server \
+    openssh-client \
+    iputils-ping \
+    net-tools \
+    curl \
+    vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup SSH
+RUN mkdir -p /run/sshd
+RUN mkdir -p /root/.ssh
+RUN echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+RUN echo "root:router" | chpasswd
+
+# Enable IP forwarding
+RUN echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+
+COPY entrypoint-router.sh /entrypoint-router.sh
+RUN chmod +x /entrypoint-router.sh
+
+ENTRYPOINT ["/entrypoint-router.sh"]
