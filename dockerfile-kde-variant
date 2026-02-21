@@ -1,0 +1,260 @@
+FROM ubuntu:22.04
+
+# Set locale
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+
+# Basic utilities and X server
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    locales \
+    ca-certificates \
+    wget \
+    gnupg \
+    apt-transport-https \
+    xorg \
+    x11-xserver-utils \
+    xserver-xorg-core \
+    xserver-xorg-video-dummy \
+    xorgxrdp \
+    xrdp \
+    dbus-x11 \
+    dbus \
+    sudo \
+    pulseaudio \
+    pulseaudio-utils \
+    fonts-firacode \
+    fontconfig \
+    supervisor \
+    network-manager \
+    samba \
+    smbclient \
+    nano \
+    libgl1-mesa-dri \
+    libgl1-mesa-dev \
+    libx11-6 \
+    libxext6 \
+    libxtst6 \
+    libdbus-1-3 \
+    kde-plasma-desktop \
+    plasma-desktop \
+    kde-baseapps \
+    policykit-1 \
+    policykit-1-gnome \
+    epiphany-browser \
+    libwebkit2gtk-4.0-37 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Generate locale
+RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
+
+# Create a non-root user
+RUN useradd -m -s /bin/bash -G sudo kdeuser && echo "kdeuser:password" | chpasswd
+ENV HOME=/home/kdeuser
+
+# Configure X session to start KDE for the user
+RUN echo "exec startplasma-x11" > /home/kdeuser/.xsession && chown kdeuser:kdeuser /home/kdeuser/.xsession
+
+# Create proper startwm.sh for xrdp that starts KDE Plasma
+RUN cat > /etc/xrdp/startwm.sh <<'STARTWM'
+#!/bin/sh
+# XfreeRDP startup script for KDE Plasma
+if [ -r /etc/profile ]; then
+    . /etc/profile
+fi
+
+export LANG=en_US.UTF-8
+export DISPLAY=:10
+export XRDPSCREENSIZE=1920x1080
+
+# Ensure D-Bus is available
+if [ ! -d /run/dbus ]; then
+    mkdir -p /run/dbus
+fi
+
+# Start D-Bus session (if not already running)
+if [ ! -f /run/dbus/system_bus_socket ]; then
+    /usr/bin/dbus-daemon --system --nofork &
+    sleep 1
+fi
+
+exec startplasma-x11
+STARTWM
+RUN chmod +x /etc/xrdp/startwm.sh
+
+# Configure xrdp.ini with proper session settings
+RUN cat > /etc/xrdp/xrdp.ini <<'XRDPINI'
+[global]
+; xrdp configuration
+
+[Xvnc]
+name=Xvnc
+lib=libvnc.so
+username=ask
+password=ask
+ip=127.0.0.1
+port=-1
+
+[Xorg]
+name=Xorg
+lib=libxorg.so
+username=ask
+password=ask
+ip=127.0.0.1
+port=-1
+; Use sesman to spawn X session
+XRDPINI
+RUN chmod 644 /etc/xrdp/xrdp.ini
+
+# Ensure dbus runtime dir exists and create missing system users to satisfy bus config
+RUN mkdir -p /run/dbus && chown root:root /run/dbus || true
+RUN id whoopsie 2>/dev/null || useradd --system --no-create-home --shell /usr/sbin/nologin whoopsie || true
+
+# Install browsers with architecture detection (Chrome on amd64, Chromium on other arches) and Firefox
+RUN ARCH="$(dpkg --print-architecture 2>/dev/null || echo "$(uname -m)")" && \
+    echo "Detected architecture: $ARCH" && \
+    if [ "$ARCH" = "amd64" ] || [ "$ARCH" = "x86_64" ]; then \
+    echo "Installing Google Chrome (amd64)" && \
+    curl -fSL -o /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/google-chrome.deb || apt-get -f install -y && \
+    rm -f /tmp/google-chrome.deb ; \
+    else \
+    echo "Non-amd64 arch ($ARCH): attempting to install Chromium from apt (chromium or chromium-browser)" && \
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends chromium chromium-browser || true ; \
+    fi && \
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    libgtk-3-0 \
+    libdbus-glib-1-2 \
+    libxss1 \
+    libasound2 \
+    libatk1.0-0 \
+    libcups2 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcomposite1 \
+    libxrandr2 \
+    libxdamage1 \
+    libdrm2 \
+    libgbm1 \
+    libpulse0 \
+    bzip2 \
+    curl && \
+    if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then \
+    FF_OS=linux-aarch64 ; \
+    else \
+    FF_OS=linux64 ; \
+    fi && \
+    echo "Downloading Firefox for $FF_OS" && \
+    (curl -fSL -o /tmp/firefox.tar.bz2 "https://download.mozilla.org/?product=firefox-latest&os=${FF_OS}&lang=en-US" || true) && \
+    if [ -f /tmp/firefox.tar.bz2 ]; then \
+    rm -rf /opt/firefox || true && \
+    tar -C /opt -xjf /tmp/firefox.tar.bz2 && \
+    ln -sf /opt/firefox/firefox /usr/local/bin/firefox && \
+    rm -f /tmp/firefox.tar.bz2 ; \
+    else \
+    echo "Firefox download failed for $FF_OS; skipping Firefox install." ; \
+    fi && rm -rf /var/lib/apt/lists/*
+
+# Install code-server (web-based VS Code)
+RUN curl -fsSL https://code-server.dev/install.sh | sh
+
+# Configure Samba (minimal)
+RUN mkdir -p /home/kdeuser/share/samba && chmod 777 /home/kdeuser/share/samba
+RUN mkdir -p /etc/samba && echo "[global]\n\tworkgroup = WORKGROUP\n\tserver string = Samba Server %v" > /etc/samba/smb.conf
+
+# Provide a simple xrdp Xorg config using the dummy driver so Xorg finds a screen
+RUN mkdir -p /etc/X11/xrdp && cat > /etc/X11/xrdp/xorg.conf <<'XCONF'
+Section "Device"
+    Identifier "XRDPR0"
+    Driver "dummy"
+    VideoRam 256000
+EndSection
+
+Section "Monitor"
+    Identifier "Monitor0"
+    HorizSync 28-80
+    VertRefresh 48-75
+EndSection
+
+Section "Screen"
+    Identifier "Screen0"
+    Device "XRDPR0"
+    Monitor "Monitor0"
+    DefaultDepth 24
+    SubSection "Display"
+        Depth 24
+        Modes "1920x1080"
+    EndSubSection
+EndSection
+XCONF
+/run/user/1000 && \
+    chmod 0755 /run/sshd && chmod 1777 /tmp/.X11-unix && touch /home/kdeuser/.Xauthority && chown kdeuser:kdeuser /home/kdeuser/.Xauthority && \
+    chown -R root:root /run/sshd || true && chown -R root:root /var/log/xrdp || true && chmod 0777 /var/log/xrdp || true && \
+    chown -R root:root /var/run/xrdp || true && chmod 0777 /var/run/xrdp || true && chown -R kdeuser:kdeuser /home/kdeuser && chmod 700 /home/kdeuser || true && \
+    mkdir -p /var/run/dbus && chmod 0755 /var/run/dbus && chown root:root /var/run/dbusfig || true
+RUN useradd -m remoteuser && echo "remoteuser:password" | chpasswd
+
+# Create runtime dirs and set ownerships
+RUN mkdir -p /run/sshd /tmp/.X11-unix /var/log/xrdp /var/run/xrdp /var/log/samba && \
+    chmod 0755 /run/sshd && chmod 1777 /tmp/.X11-unix && touch /home/kdeuser/.Xauthority && chown kdeuser:kdeuser /home/kdeuser/.Xauthority && \
+    chown -R root:root /run/sshd || true && chown -R root:root /var/log/xrdp || true && chmod 0777 /var/log/xrdp || true && \
+    chown -R root:root /var/run/xrdp || true && chmod 0777 /var/run/xrdp || true && chown -R kdeuser:kdeuser /home/kdeuser && chmod 700 /home/kdeuser || true
+
+# Supervisor configuration to run services
+RUN mkdir -p /etc/supervisor
+RUN cat > /etc/supervisor/supervisord.conf <<'EOF'
+[supervisord]
+nodaemon=true
+
+[program:dbus]
+command=/usr/bin/dbus-daemon --system --nofork --nopidfile
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+autorestart=true
+priority=1
+
+[program:sshd]
+command=/usr/sbin/sshd -D
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+autorestart=true
+priority=2
+
+[program:xrdp-sesman]
+command=/usr/sbin/xrdp-sesman --nodaemon
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser",LANG="en_US.UTF-8"
+autorestart=true
+priority=3
+
+[program:xrdp]
+command=/usr/sbin/xrdp --nodaemon
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser",LANG="en_US.UTF-8"
+autorestart=true
+priority=4
+
+[program:code-server]
+command=/usr/bin/code-server --bind-addr 0.0.0.0:8080
+user=kdeuser
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+environment=PASSWORD="password",HOME="/home/kdeuser",LANG="en_US.UTF-8"
+autorestart=true
+priority=5
+EOF
+
+EXPOSE 3389
+
+CMD ["/usr/bin/supervisord","-n","-c","/etc/supervisor/supervisord.conf"]
