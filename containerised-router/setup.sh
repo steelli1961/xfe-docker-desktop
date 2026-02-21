@@ -1,5 +1,38 @@
 #!/bin/bash
 
+################################################################################
+# Docker Network Simulation Setup Script for Linux/macOS
+################################################################################
+#
+# This script sets up a Docker network simulation environment with:
+# - A router container with iptables and routing capabilities
+# - Two client containers connected through the router
+# - Network isolation and connectivity testing
+#
+# USAGE (Linux/macOS):
+#   bash setup.sh          - Full setup with cleanup of existing resources
+#   bash setup.sh clean    - Only cleanup existing resources
+#   bash setup.sh reset    - Reset by cleaning up and then setting up fresh
+#
+# WINDOWS USERS:
+#   Use setup.bat instead (Windows batch file equivalent)
+#   Command Prompt: setup.bat
+#   PowerShell:     .\setup.bat
+#
+# REQUIREMENTS:
+#   - Docker and Docker Compose installed
+#   - For Linux: Elevated privileges may be needed for iptables rules
+#   - For macOS: Docker Desktop app running
+#   - For Windows: Docker Desktop for Windows + Command Prompt or PowerShell
+#
+# CROSS-PLATFORM NOTES:
+#   - Shell script version (setup.sh): Linux/macOS - uses bash, ANSI colors
+#   - Batch version (setup.bat): Windows - uses Command Prompt/PowerShell
+#   - Both versions perform identical setup operations
+#   - Docker commands work the same across all platforms
+#
+################################################################################
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -90,6 +123,8 @@ start_router() {
         --cap-add=NET_ADMIN \
         --cap-add=SYS_ADMIN \
         --hostname router \
+        --dns 8.8.8.8 \
+        --dns 1.1.1.1 \
         $ROUTER_IMAGE || {
         print_error "Failed to start router container"
         exit 1
@@ -121,6 +156,8 @@ start_clients() {
         --network $NETWORK_ONE \
         --hostname client1 \
         --cap-add=NET_ADMIN \
+        --dns 8.8.8.8 \
+        --dns 1.1.1.1 \
         $CLIENT_IMAGE || {
         print_error "Failed to start client1"
         exit 1
@@ -131,6 +168,8 @@ start_clients() {
         --network $NETWORK_TWO \
         --hostname client2 \
         --cap-add=NET_ADMIN \
+        --dns 8.8.8.8 \
+        --dns 1.1.1.1 \
         $CLIENT_IMAGE || {
         print_error "Failed to start client2"
         exit 1

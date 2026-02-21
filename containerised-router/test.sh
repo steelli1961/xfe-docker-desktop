@@ -1,5 +1,63 @@
 #!/bin/bash
 
+################################################################################
+# Docker Network Simulation Testing Script for Linux/macOS
+################################################################################
+#
+# This script provides comprehensive testing and diagnostics for the Docker
+# network simulation environment. It can run in two modes:
+#
+# USAGE (Linux/macOS):
+#   Interactive mode (menu-driven):
+#     bash test.sh
+#
+#   Direct command mode:
+#     bash test.sh check       - Check container status
+#     bash test.sh ping        - Test ping connectivity
+#     bash test.sh ssh         - Test SSH connectivity
+#     bash test.sh internet    - Test internet access through NAT
+#     bash test.sh config      - Show network configuration
+#     bash test.sh iptables    - Show iptables rules
+#     bash test.sh test        - Run all tests
+#     bash test.sh router      - Open shell on router container
+#     bash test.sh client1     - Open shell on client1 container
+#     bash test.sh client2     - Open shell on client2 container
+#
+# WINDOWS USERS:
+#   Use test.bat instead (Windows batch file equivalent)
+#   Command Prompt: test.bat
+#   PowerShell:     .\test.bat
+#
+#   Interactive mode:
+#     test.bat
+#
+#   Direct command mode:
+#     test.bat check
+#     test.bat ping
+#     test.bat ssh
+#     test.bat internet
+#     test.bat config
+#     test.bat iptables
+#     test.bat test
+#     test.bat router
+#     test.bat client1
+#     test.bat client2
+#
+# REQUIREMENTS:
+#   - Docker containers running: router, client1, client2
+#   - For Linux: sshpass and curl packages may be needed for tests
+#   - For macOS: sshpass and curl (usually pre-installed)
+#   - For Windows: sshpass and curl (included in client containers)
+#
+# CROSS-PLATFORM NOTES:
+#   - Shell script version (test.sh): Linux/macOS - uses bash, ANSI colors
+#   - Batch version (test.bat): Windows - uses Command Prompt/PowerShell
+#   - Both versions perform identical testing operations
+#   - All Docker commands are platform-independent
+#   - Output formatting differs slightly due to terminal capabilities
+#
+################################################################################
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
