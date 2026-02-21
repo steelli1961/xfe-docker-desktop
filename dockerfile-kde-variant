@@ -51,10 +51,50 @@ RUN if [ -f /etc/xrdp/startwm.sh ]; then sed -i 's|/bin/sh /etc/X11/Xsession|exe
 RUN mkdir -p /run/dbus && chown root:root /run/dbus || true
 RUN id whoopsie 2>/dev/null || useradd --system --no-create-home --shell /usr/sbin/nologin whoopsie || true
 
-# Install Google Chrome
-RUN wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/google-chrome.deb || apt-get -f install -y \
-    && rm -f /tmp/google-chrome.deb && rm -rf /var/lib/apt/lists/*
+# Install browsers with architecture detection (Chrome on amd64, Chromium on other arches) and Firefox
+RUN ARCH="$(dpkg --print-architecture 2>/dev/null || echo "$(uname -m)")" && \
+    echo "Detected architecture: $ARCH" && \
+    if [ "$ARCH" = "amd64" ] || [ "$ARCH" = "x86_64" ]; then \
+    echo "Installing Google Chrome (amd64)" && \
+    curl -fSL -o /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/google-chrome.deb || apt-get -f install -y && \
+    rm -f /tmp/google-chrome.deb ; \
+    else \
+    echo "Non-amd64 arch ($ARCH): attempting to install Chromium from apt (chromium or chromium-browser)" && \
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends chromium chromium-browser || true ; \
+    fi && \
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    libgtk-3-0 \
+    libdbus-glib-1-2 \
+    libxss1 \
+    libasound2 \
+    libatk1.0-0 \
+    libcups2 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcomposite1 \
+    libxrandr2 \
+    libxdamage1 \
+    libdrm2 \
+    libgbm1 \
+    libpulse0 \
+    bzip2 \
+    curl && \
+    if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then \
+    FF_OS=linux-aarch64 ; \
+    else \
+    FF_OS=linux64 ; \
+    fi && \
+    echo "Downloading Firefox for $FF_OS" && \
+    (curl -fSL -o /tmp/firefox.tar.bz2 "https://download.mozilla.org/?product=firefox-latest&os=${FF_OS}&lang=en-US" || true) && \
+    if [ -f /tmp/firefox.tar.bz2 ]; then \
+    rm -rf /opt/firefox || true && \
+    tar -C /opt -xjf /tmp/firefox.tar.bz2 && \
+    ln -sf /opt/firefox/firefox /usr/local/bin/firefox && \
+    rm -f /tmp/firefox.tar.bz2 ; \
+    else \
+    echo "Firefox download failed for $FF_OS; skipping Firefox install." ; \
+    fi && rm -rf /var/lib/apt/lists/*
 
 # Install code-server (web-based VS Code)
 RUN curl -fsSL https://code-server.dev/install.sh | sh
