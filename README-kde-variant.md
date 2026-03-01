@@ -17,7 +17,7 @@ This variant builds an Ubuntu-based Docker image with KDE Plasma as the modern d
 
 **Architecture**:
 - Base OS: Ubuntu 22.04 LTS
-- Display Server: X11 via Xorg/Xvnc
+- Display Server: X11 via Xorg
 - Remote Access: XRDP protocol on port 3389
 - Session Management: supervisord (multiple services in one container)
 - Default User: `kdeuser` with password `password`
@@ -34,6 +34,8 @@ This variant builds an Ubuntu-based Docker image with KDE Plasma as the modern d
 
 ### Development Tools
 - **code-server**: Web-based VS Code on `http://localhost:8080`
+
+*(VNC has been removed from this build; RDP only.)*
 - **Terminal**: KDE Konsole
 - **Text Editors**: Various KDE applications
 

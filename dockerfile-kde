@@ -6,7 +6,7 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install required packages (KDE, networking, RDP, VNC, browsers, samba, etc.)
+# Install required packages (KDE, networking, RDP, browsers, samba, etc.)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     locales \
@@ -46,8 +46,7 @@ RUN apt-get update && \
     policykit-1-gnome \
     epiphany-browser \
     libwebkit2gtk-4.0-37 \
-    tigervnc-standalone-server \
-    x11vnc \
+    # VNC packages removed (RDP only)
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Generate locale
@@ -135,10 +134,10 @@ RUN ARCH="$(dpkg --print-architecture 2>/dev/null || echo "$(uname -m)")" && \
     echo "Detected architecture for twingate install: $ARCH" && \
     curl -fsSL https://get.twingate.com/linux/installscripts/installer.sh | bash || true
 
-# Configure VNC password for kdeuser
-RUN mkdir -p /home/kdeuser/.vnc && \
-    echo "password" | vncpasswd -f > /home/kdeuser/.vnc/passwd && \
-    chown -R kdeuser:kdeuser /home/kdeuser/.vnc && chmod 600 /home/kdeuser/.vnc/passwd
+# VNC not required; RDP handles remote desktop access
+# RUN mkdir -p /home/kdeuser/.vnc && \
+#    echo "password" | vncpasswd -f > /home/kdeuser/.vnc/passwd && \
+#    chown -R kdeuser:kdeuser /home/kdeuser/.vnc && chmod 600 /home/kdeuser/.vnc/passwd
 
 # Configure samba shares
 RUN mkdir -p /home/kdeuser/share/samba && chmod 777 /home/kdeuser/share/samba && \
@@ -203,15 +202,6 @@ stdout_logfile_maxbytes=0
 environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser",LANG="en_US.UTF-8"
 autorestart=true
 priority=4
-
-[program:vnc]
-command=/usr/bin/tigervncserver :1 -geometry 1920x1080 -fg
-user=kdeuser
-redirect_stderr=true
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-autorestart=true
-priority=5
 
 EOF
 
