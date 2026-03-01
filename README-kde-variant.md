@@ -17,7 +17,7 @@ This variant builds an Ubuntu-based Docker image with KDE Plasma as the modern d
 
 **Architecture**:
 - Base OS: Ubuntu 22.04 LTS
-- Display Server: X11 via Xorg/Xvnc
+- Display Server: X11 via Xorg
 - Remote Access: XRDP protocol on port 3389
 - Session Management: supervisord (multiple services in one container)
 - Default User: `kdeuser` with password `password`
@@ -34,6 +34,8 @@ This variant builds an Ubuntu-based Docker image with KDE Plasma as the modern d
 
 ### Development Tools
 - **code-server**: Web-based VS Code on `http://localhost:8080`
+
+*(VNC has been removed from this build; RDP only.)*
 - **Terminal**: KDE Konsole
 - **Text Editors**: Various KDE applications
 
@@ -61,13 +63,33 @@ This variant builds an Ubuntu-based Docker image with KDE Plasma as the modern d
 docker build -f dockerfile-kde-variant -t xfe-kde:latest .
 ```
 
+### Κατασκευή (Ελληνικά)
+
+```bash
+docker build -f dockerfile-kde-variant -t xfe-kde:latest .
+```
+
+(Η εντολή είναι ίδια στα Αγγλικά και στα Ελληνικά – απλώς έχουμε περιγράψει το βήμα για Ελληνόφωνους χρήστες)
+
 ### Build with Custom Tag
 
 ```bash
 docker build -f dockerfile-kde-variant -t xfe-kde:v1.0 .
 ```
 
+### Κατασκευή με προσαρμοσμένη ετικέτα (Ελληνικά)
+
+```bash
+docker build -f dockerfile-kde-variant -t xfe-kde:v1.0 .
+```
+
 ### Build with Progress Output
+
+```bash
+docker build --progress=plain -f dockerfile-kde-variant -t xfe-kde:latest .
+```
+
+### Κατασκευή με εμφάνιση προόδου (Ελληνικά)
 
 ```bash
 docker build --progress=plain -f dockerfile-kde-variant -t xfe-kde:latest .
@@ -94,6 +116,11 @@ Firefox is automatically downloaded for the detected architecture.
 docker run -d --name xfe-kde -p 3389:3389 xfe-kde:latest
 ```
 
+### Βασική Εκτέλεση (Ελληνικά)
+
+```bash
+docker run -d --name xfe-kde -p 3389:3389 xfe-kde:latest
+```
 ### Run with All Ports Exposed
 
 ```bash
@@ -147,6 +174,19 @@ docker run -d \
   xfe-kde:latest
 ```
 
+### Εκτέλεση με μεταβλητές περιβάλλοντος (Ελληνικά)
+
+```bash
+docker run -d \
+  --name xfe-kde \
+  -p 3389:3389 \
+  -e LANG=de_DE.UTF-8 \
+  -e TZ=Europe/Berlin \
+  xfe-kde:latest
+```
+
+Όλες οι παραπάνω παραλλαγές εκτέλεσης λειτουργούν με τον ίδιο τρόπο και μπορείτε να τις χρησιμοποιήσετε και στα Ελληνικά με τον ίδιο ακριβώς κώδικα. Απλά αντικαταστήστε τις παραμέτρους (όπως tags, ports, volumes) ανάλογα με τις ανάγκες σας.
+
 ---
 
 ## Connecting
@@ -187,14 +227,64 @@ ssh -p 2222 kdeuser@localhost
 ssh kdeuser@localhost
 ```
 
+### XDMCP Connection (Linux/macOS)
+
+XDMCP (X Display Management Control Protocol) provides native X11 remote display access.
+
+**From Linux**:
+
+```bash
+# 1. Start X server display on your machine (if needed)
+Xvfb :99 -screen 0 1920x1080x24 &
+
+# 2. Connect to container via XDMCP
+X -query localhost -broadcast :99
+
+# Or use xdmcp client:
+xdmcp -host localhost &
+```
+
+**From macOS**:
+
+1. Install XQuartz if not already installed:
+   ```bash
+   brew install xquartz
+   ```
+
+2. Start X11 session:
+   ```bash
+   open -a XQuartz
+   # In XQuartz terminal:
+   X -query localhost :0
+   ```
+
+3. Or use the XDarwin graphical launcher:
+   - Open XQuartz → Applications → Utilities → X11 Launcher
+   - Set Query Host: `localhost`
+   - Click "Open"
+
+**Port Mapping Required**:
+```bash
+docker run -d \
+  --name xfe-kde \
+  -p 3389:3389 \   # RDP
+  -p 177:177/udp \ # XDMCP
+  -p 2222:22 \     # SSH
+  xfe-kde:latest
+```
+
+**Connection Details**:
+- Host: `localhost`
+- Port: `177` (XDMCP, UDP)
+- All logins default to: `kdeuser` / `password`
+
 ---
 
 ## Network and Port Mapping
 
 | Service | Internal Port | Default Map | Purpose |
 |---------|---------------|-------------|---------|
-| XRDP | 3389 | 3389 | Remote desktop protocol |
-| SSH | 22 | 22 or 2222 | Remote command shell |
+| XRDP | 3389 | 3389 | Remote desktop protocol || XDMCP | 177 | 177/udp | X11 remote display (Linux/macOS) || SSH | 22 | 22 or 2222 | Remote command shell |
 | code-server | 8080 | 8080 | Web-based VS Code |
 | DNSmasq (optional) | 53 | N/A | DNS (if added) |
 

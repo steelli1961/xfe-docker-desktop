@@ -1,104 +1,188 @@
-FROM ubuntu:latest
+FROM ubuntu:22.04
 
-# Update package lists and install necessary dependencies
+# Set locale and environment
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install required packages (KDE, networking, RDP, browsers, samba, etc.)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        xserver-xephyr \
-        xorg \
-        xserver-xorg-core \
-        x11-xserver-utils \
-        xorgxrdp \
-        xfce4 \
-        xfce4-terminal \
-        network-manager \
-        sudo \
-        openssh-server \
-        xrdp \
-        pulseaudio \
-        pulseaudio-utils \
-        dbus \
-        dbus-x11 \
-        gnome-keyring \
-        libgl1-mesa-dri \
-        libgl1-mesa-dev \
-        libx11-6 \
-        libxext6 \
-        libxtst6 \
-        libdbus-1-3 \
-        fonts-firacode \
-        fontconfig \
-        samba \
-        smbclient \
-        nano \
-        supervisor \
-    && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    locales \
+    ca-certificates \
+    wget \
+    gnupg \
+    apt-transport-https \
+    curl \
+    xorg \
+    x11-xserver-utils \
+    xserver-xorg-core \
+    xserver-xorg-video-dummy \
+    xserver-xorg-input-all \
+    xorgxrdp \
+    xvfb \
+    xrdp \
+    dbus-x11 \
+    dbus \
+    sudo \
+    pulseaudio \
+    openssh-server \
+    pulseaudio-utils \
+    xdm \
+    fonts-firacode \
+    fontconfig \
+    supervisor \
+    network-manager \
+    samba \
+    smbclient \
+    nano \
+    libgl1-mesa-dri \
+    libgl1-mesa-dev \
+    libx11-6 \
+    libxext6 \
+    libxtst6 \
+    libdbus-1-3 \
+    kde-plasma-desktop \
+    plasma-desktop \
+    kwin-x11 \
+    kde-baseapps \
+    policykit-1 \
+    policykit-1-gnome \
+    epiphany-browser \
+    libwebkit2gtk-4.0-37 \
+    # VNC packages removed (RDP only)
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Create runtime dirs early to prevent service startup issues
+RUN mkdir -p /run/dbus /run/user/1000 /tmp/.X11-unix && \
+    chmod 1777 /tmp/.X11-unix && \
+    chmod 0755 /run/dbus
 
-# Configure XRDP
-RUN mkdir  -p /etc/xdm/
-RUN echo "xrdp-sesman" >> /etc/xdm/xrdp.ini
-RUN echo "port=3389" >> /etc/xdm/xrdp.ini
-RUN echo "listenaddress=0.0.0.0">> /etc/xdm/xrdp.ini
+# Generate locale
+RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 
-# Enable Samba
-RUN apt-get install -y samba
-
-# Configure Samba (basic setup)
-RUN mkdir -p /home/kdeuser/share/samba
-RUN chmod 777 /home/kdeuser/share/samba
-
-# Create a user with bash shell and add to sudo group
-RUN useradd -m -s /bin/bash -G sudo kdeuser
-
-# Set password for the user (replace 'password' with a strong password)
-RUN echo "kdeuser:password" | chpasswd
-
-# Ensure XFCE starts for xrdp sessions
-RUN echo "startxfce4" > /home/kdeuser/.xsession && chown kdeuser:kdeuser /home/kdeuser/.xsession
-
-# Make xrdp start XFCE by default
-RUN if [ -f /etc/xrdp/startwm.sh ]; then sed -i 's|/bin/sh /etc/X11/Xsession|startxfce4|' /etc/xrdp/startwm.sh || true; fi
-
-# Create runtime dirs and files required by sshd, X and xrdp and set ownerships
-ENV CHANSRV_LOG_PATH=/var/log/xrdp
+# Create non-root KDE user
+RUN useradd -m -s /bin/bash -G sudo kdeuser && \
+    echo "kdeuser:password" | chpasswd
 ENV HOME=/home/kdeuser
 
-# Create runtime dirs and files required by sshd, X and xrdp and set ownerships
-RUN mkdir -p /run/sshd /tmp/.X11-unix /var/log/xrdp /var/run/xrdp && \
-    chmod 0755 /run/sshd && \
-    chmod 1777 /tmp/.X11-unix && \
-    mkdir -p /var/log/samba && \
+# Configure KDE session for xrdp/vnc
+RUN echo "exec startplasma-x11" > /home/kdeuser/.xsession && \
+    chown kdeuser:kdeuser /home/kdeuser/.xsession
+
+# Configure xdm for XDMCP (network X11 access)
+RUN sed -i 's/^DisplayManager._0.terminate/!DisplayManager._0.terminate/' /etc/X11/xdm/xdm-config && \
+    sed -i 's/^.*DisplayManager.requestPort/DisplayManager.requestPort/' /etc/X11/xdm/xdm-config && \
+    echo '*' >> /etc/X11/xdm/Xaccess
+
+# Configure xrdp startup script
+RUN cat > /etc/xrdp/startwm.sh <<'STARTWM'
+#!/bin/sh
+if [ -r /etc/profile ]; then
+    . /etc/profile
+fi
+export LANG=en_US.UTF-8
+export DISPLAY=:10
+export XRDPSCREENSIZE=1920x1080
+export XDG_RUNTIME_DIR=/run/user/1000
+export XDG_SESSION_TYPE=x11
+
+# create XDG_RUNTIME_DIR if needed
+mkdir -p "${XDG_RUNTIME_DIR}"
+chown kdeuser:kdeuser "${XDG_RUNTIME_DIR}"
+chmod 700 "${XDG_RUNTIME_DIR}"
+
+# ensure dbus
+[ -d /run/dbus ] || mkdir -p /run/dbus
+[ ! -f /run/dbus/system_bus_socket ] && /usr/bin/dbus-daemon --system --nofork & sleep 1
+
+exec startplasma-x11
+STARTWM
+RUN chmod +x /etc/xrdp/startwm.sh
+
+# Provide dummy xorg config for xrdp
+RUN mkdir -p /etc/X11/xrdp && cat > /etc/X11/xrdp/xorg.conf <<'XCONF'
+Section "Device"
+    Identifier "XRDPR0"
+    Driver "dummy"
+    VideoRam 256000
+EndSection
+
+Section "Monitor"
+    Identifier "Monitor0"
+    HorizSync 28-80
+    VertRefresh 48-75
+EndSection
+
+Section "Screen"
+    Identifier "Screen0"
+    Device "XRDPR0"
+    Monitor "Monitor0"
+    DefaultDepth 24
+    SubSection "Display"
+        Depth 24
+        Modes "1920x1080"
+    EndSubSection
+EndSection
+XCONF
+
+# Install browsers (chrome on amd64, chromium otherwise) and firefox
+RUN ARCH="$(dpkg --print-architecture 2>/dev/null || echo "$(uname -m)")" && \
+    echo "Detected architecture for browser install: $ARCH" && \
+    if [ "$ARCH" = "amd64" ] || [ "$ARCH" = "x86_64" ]; then \
+    curl -fSL -o /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    apt-get update && apt-get install -y --no-install-recommends /tmp/google-chrome.deb || apt-get -f install -y && \
+    rm -f /tmp/google-chrome.deb ; \
+    else \
+    apt-get update && apt-get install -y --no-install-recommends chromium chromium-browser || true ; \
+    fi && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    libgtk-3-0 libdbus-glib-1-2 libxss1 libasound2 libatk1.0-0 libcups2 \
+    libx11-xcb1 libxcb1 libxcomposite1 libxrandr2 libxdamage1 libdrm2 \
+    libgbm1 libpulse0 bzip2 && \
+    FF_OS=linux64 && \
+    if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then FF_OS=linux-aarch64; fi && \
+    curl -fSL -o /tmp/firefox.tar.bz2 "https://download.mozilla.org/?product=firefox-latest&os=${FF_OS}&lang=en-US" || true && \
+    if [ -f /tmp/firefox.tar.bz2 ]; then \
+    rm -rf /opt/firefox || true && \
+    tar -C /opt -xjf /tmp/firefox.tar.bz2 && \
+    ln -sf /opt/firefox/firefox /usr/local/bin/firefox && \
+    rm -f /tmp/firefox.tar.bz2 ; \
+    fi && rm -rf /var/lib/apt/lists/*
+
+# Install twingate client (script should auto-detect arch but we echo it for clarity)
+RUN ARCH="$(dpkg --print-architecture 2>/dev/null || echo "$(uname -m)")" && \
+    echo "Detected architecture for twingate install: $ARCH" && \
+    curl -fsSL https://get.twingate.com/linux/installscripts/installer.sh | bash || true
+
+# VNC not required; RDP handles remote desktop access
+# RUN mkdir -p /home/kdeuser/.vnc && \
+#    echo "password" | vncpasswd -f > /home/kdeuser/.vnc/passwd && \
+#    chown -R kdeuser:kdeuser /home/kdeuser/.vnc && chmod 600 /home/kdeuser/.vnc/passwd
+
+# Configure samba shares
+RUN mkdir -p /home/kdeuser/share/samba && chmod 777 /home/kdeuser/share/samba && \
+    mkdir -p /etc/samba && \
+    echo -e "[global]\n\tworkgroup = WORKGROUP\n\tserver string = Samba Server %v" > /etc/samba/smb.conf
+
+# setup sshd user
+RUN useradd -m remoteuser && echo "remoteuser:password" | chpasswd
+RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
+    sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+# runtime directories and permissions
+RUN mkdir -p /run/sshd /tmp/.X11-unix /var/log/xrdp /var/run/xrdp /var/log/samba /run/user/1000 && \
+    chmod 0755 /run/sshd && chmod 1777 /tmp/.X11-unix && \
     touch /home/kdeuser/.Xauthority && chown kdeuser:kdeuser /home/kdeuser/.Xauthority && \
     chown -R root:root /run/sshd || true && \
     chown -R root:root /var/log/xrdp || true && chmod 0777 /var/log/xrdp || true && \
     chown -R root:root /var/run/xrdp || true && chmod 0777 /var/run/xrdp || true && \
-    chown -R kdeuser:kdeuser /home/kdeuser && chmod 700 /home/kdeuser || true
+    chown -R kdeuser:kdeuser /home/kdeuser && chmod 700 /home/kdeuser || true && \
+    chown kdeuser:kdeuser /run/user/1000 && chmod 700 /run/user/1000 || true
 
-# Configure Samba
-RUN mkdir -p /etc/samba
-RUN echo "[global] \n\tprotocol = samba \n\tserver string = Samba Server %v \n\tworkgroup = WORKGROUP" > /etc/samba/smb.conf
-
-# Set Samba password for the user
-RUN echo "vfs objects = samba_afs,samba_lanman" >> /etc/samba/smb.conf
-
-# Set up SSH for remote access (optional, but recommended)
-RUN apt-get install -y openssh-server
-
-# Configure SSH (basic setup)
-RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
-RUN sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config
-RUN sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-
-# Create a user for SSH access (recommended)
-RUN useradd -m remoteuser
-RUN echo "remoteuser:password" | chpasswd  # Replace 'password' with a strong password
-
-# Set up SSH to allow root login (for initial setup only - disable in production!)
-RUN echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
-
-# Configure supervisord to manage services in the foreground
+# Supervisor config
 RUN mkdir -p /etc/supervisor
 RUN cat > /etc/supervisor/supervisord.conf <<'EOF'
 [supervisord]
@@ -111,6 +195,7 @@ redirect_stderr=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 autorestart=true
+priority=1
 
 [program:sshd]
 command=/usr/sbin/sshd -D
@@ -119,7 +204,7 @@ redirect_stderr=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 autorestart=true
-
+priority=2
 
 [program:xrdp-sesman]
 command=/usr/sbin/xrdp-sesman --nodaemon
@@ -127,8 +212,9 @@ user=root
 redirect_stderr=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
-environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser"
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser",LANG="en_US.UTF-8"
 autorestart=true
+priority=3
 
 [program:xrdp]
 command=/usr/sbin/xrdp --nodaemon
@@ -136,15 +222,13 @@ user=root
 redirect_stderr=true
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
-environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser"
+environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser",LANG="en_US.UTF-8"
 autorestart=true
+priority=4
+
 EOF
 
-# Note: keep running as root so supervisord can manage services
+EXPOSE 3389 177
 
-# Expose port 3389 for XRDP
-EXPOSE 3389
-
-# Start supervisord to run services in foreground
 CMD ["/usr/bin/supervisord","-n","-c","/etc/supervisor/supervisord.conf"]
 
