@@ -227,14 +227,64 @@ ssh -p 2222 kdeuser@localhost
 ssh kdeuser@localhost
 ```
 
+### XDMCP Connection (Linux/macOS)
+
+XDMCP (X Display Management Control Protocol) provides native X11 remote display access.
+
+**From Linux**:
+
+```bash
+# 1. Start X server display on your machine (if needed)
+Xvfb :99 -screen 0 1920x1080x24 &
+
+# 2. Connect to container via XDMCP
+X -query localhost -broadcast :99
+
+# Or use xdmcp client:
+xdmcp -host localhost &
+```
+
+**From macOS**:
+
+1. Install XQuartz if not already installed:
+   ```bash
+   brew install xquartz
+   ```
+
+2. Start X11 session:
+   ```bash
+   open -a XQuartz
+   # In XQuartz terminal:
+   X -query localhost :0
+   ```
+
+3. Or use the XDarwin graphical launcher:
+   - Open XQuartz → Applications → Utilities → X11 Launcher
+   - Set Query Host: `localhost`
+   - Click "Open"
+
+**Port Mapping Required**:
+```bash
+docker run -d \
+  --name xfe-kde \
+  -p 3389:3389 \   # RDP
+  -p 177:177/udp \ # XDMCP
+  -p 2222:22 \     # SSH
+  xfe-kde:latest
+```
+
+**Connection Details**:
+- Host: `localhost`
+- Port: `177` (XDMCP, UDP)
+- All logins default to: `kdeuser` / `password`
+
 ---
 
 ## Network and Port Mapping
 
 | Service | Internal Port | Default Map | Purpose |
 |---------|---------------|-------------|---------|
-| XRDP | 3389 | 3389 | Remote desktop protocol |
-| SSH | 22 | 22 or 2222 | Remote command shell |
+| XRDP | 3389 | 3389 | Remote desktop protocol || XDMCP | 177 | 177/udp | X11 remote display (Linux/macOS) || SSH | 22 | 22 or 2222 | Remote command shell |
 | code-server | 8080 | 8080 | Web-based VS Code |
 | DNSmasq (optional) | 53 | N/A | DNS (if added) |
 

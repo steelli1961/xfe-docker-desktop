@@ -28,6 +28,7 @@ RUN apt-get update && \
     pulseaudio \
     openssh-server \
     pulseaudio-utils \
+    xdm \
     fonts-firacode \
     fontconfig \
     supervisor \
@@ -68,6 +69,11 @@ ENV HOME=/home/kdeuser
 # Configure KDE session for xrdp/vnc
 RUN echo "exec startplasma-x11" > /home/kdeuser/.xsession && \
     chown kdeuser:kdeuser /home/kdeuser/.xsession
+
+# Configure xdm for XDMCP (network X11 access)
+RUN sed -i 's/^DisplayManager._0.terminate/!DisplayManager._0.terminate/' /etc/X11/xdm/xdm-config && \
+    sed -i 's/^.*DisplayManager.requestPort/DisplayManager.requestPort/' /etc/X11/xdm/xdm-config && \
+    echo '*' >> /etc/X11/xdm/Xaccess
 
 # Configure xrdp startup script
 RUN cat > /etc/xrdp/startwm.sh <<'STARTWM'
@@ -219,9 +225,18 @@ environment=CHANSRV_LOG_PATH="/var/log/xrdp",HOME="/home/kdeuser",LANG="en_US.UT
 autorestart=true
 priority=4
 
+[program:xdm]
+command=/usr/bin/xdm -nodaemon
+user=root
+redirect_stderr=true
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+autorestart=true
+priority=5
+
 EOF
 
-EXPOSE 3389
+EXPOSE 3389 177
 
 CMD ["/usr/bin/supervisord","-n","-c","/etc/supervisor/supervisord.conf"]
 
