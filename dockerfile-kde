@@ -20,6 +20,7 @@ RUN apt-get update && \
     xserver-xorg-core \
     xserver-xorg-video-dummy \
     xorgxrdp \
+    xvfb \
     xrdp \
     dbus-x11 \
     dbus \
@@ -49,6 +50,11 @@ RUN apt-get update && \
     libwebkit2gtk-4.0-37 \
     # VNC packages removed (RDP only)
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create runtime dirs early to prevent service startup issues
+RUN mkdir -p /run/dbus /run/user/1000 /tmp/.X11-unix && \
+    chmod 1777 /tmp/.X11-unix && \
+    chmod 0755 /run/dbus
 
 # Generate locale
 RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
