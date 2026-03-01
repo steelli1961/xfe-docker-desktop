@@ -198,9 +198,77 @@ docker build -f Dockerfile.client -t network-client:latest .
 - `sshpass` - Non-interactive SSH password authentication
 
 **Configuration**:
-- Configures SSH (root login, password auth)
-- Sets root password to `client`
-- Runs SSH daemon as main process
+
+---
+
+### Windows 11 Image (Dockerfile.win11)
+
+This optional image is used to prepare a containerized Windows 11 media environment. It starts from a `scratch` base with QEMU, installs helper packages, and places the build scripts under `/run`.
+
+- **Supports architectures**: `amd64`, `arm64` (recognized via `TARGETARCH` during build)
+- **Build example**:
+  ```bash
+  docker build -f dockerfile-win11 -t win11:latest .
+  ```
+
+> Hint: you can pass `--build-arg VERSION_ARG=<version>` to adjust the
+> base image tag if you are using a custom `dockurr/windows-arm` variant.
+
+For full instructions and Greek translations, consult `README.md` and
+`README_EL.md` in this directory. The Windows 11 Dockerfile itself contains
+comments at the top describing its purpose.
+
+### Running the Windows 11 Container
+
+Once the `win11` image is built you can start a container that will boot the
+virtualised Windows environment. A sample command:
+
+```bash
+docker run -d \
+    --name win11 \
+    -p 3389:3389 \   # RDP port
+    -p 8006:8006 \   # optional web console (Proxmox-style)
+    -v $PWD/win-storage:/storage \  # persistent storage volume
+    -e RAM_SIZE=4G \
+    -e CPU_CORES=2 \
+    -e DISK_SIZE=64G \
+    win11:latest
+```
+
+You may also override the default `VERSION` environment variable (defaults to
+"11") or supply `VERSION_ARG` at build time to change the base image tag.
+
+**Connecting**: after the container is running you can point any RDP client at
+`localhost:3389`. The Windows VM inside the container will present its usual
+login screen. The container does not set a predefined Windows password; you
+will configure it during first-boot just like a normal installer.
+
+Ελληνικά:
+
+### Εκτέλεση του κοντέινερ Windows 11
+
+Αφού δημιουργήσετε την εικόνα `win11`, ξεκινήστε το κοντέινερ με την παρακάτω
+εντολή:
+
+```bash
+docker run -d \
+    --name win11 \
+    -p 3389:3389 \   # θύρα RDP
+    -p 8006:8006 \   # προαιρετική web κονσόλα
+    -v $PWD/win-storage:/storage \  # μονάδα αποθήκευσης
+    -e RAM_SIZE=4G \
+    -e CPU_CORES=2 \
+    -e DISK_SIZE=64G \
+    win11:latest
+```
+
+Μπορείτε επίσης να υπερισχύσετε τη μεταβλητή `VERSION` (προεπιλογή "11") ή να
+δώσετε `VERSION_ARG` κατά την κατασκευή για να αλλάξει η ετικέτα της βάσης.
+
+**Σύνδεση**: όταν τρέχει το κοντέινερ, ανοίξτε έναν πελάτη RDP και συνδεθείτε
+στο `localhost:3389`. Το εικονικό Windows που εκτελείται μέσα στο κοντέινερ θα
+εμφανίσει την οθόνη σύνδεσης κανονικής εγκατάστασης. Ο κωδικός δεν είναι
+προροισμένος, θα τον ορίσετε στην πρώτη εκκίνηση.
 
 ---
 
