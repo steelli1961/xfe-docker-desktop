@@ -25,6 +25,7 @@ RUN apt-get update && \
     dbus \
     sudo \
     pulseaudio \
+    openssh-server \
     pulseaudio-utils \
     fonts-firacode \
     fontconfig \
