@@ -61,13 +61,33 @@ This variant builds an Ubuntu-based Docker image with KDE Plasma as the modern d
 docker build -f dockerfile-kde-variant -t xfe-kde:latest .
 ```
 
+### Κατασκευή (Ελληνικά)
+
+```bash
+docker build -f dockerfile-kde-variant -t xfe-kde:latest .
+```
+
+(Η εντολή είναι ίδια στα Αγγλικά και στα Ελληνικά – απλώς έχουμε περιγράψει το βήμα για Ελληνόφωνους χρήστες)
+
 ### Build with Custom Tag
 
 ```bash
 docker build -f dockerfile-kde-variant -t xfe-kde:v1.0 .
 ```
 
+### Κατασκευή με προσαρμοσμένη ετικέτα (Ελληνικά)
+
+```bash
+docker build -f dockerfile-kde-variant -t xfe-kde:v1.0 .
+```
+
 ### Build with Progress Output
+
+```bash
+docker build --progress=plain -f dockerfile-kde-variant -t xfe-kde:latest .
+```
+
+### Κατασκευή με εμφάνιση προόδου (Ελληνικά)
 
 ```bash
 docker build --progress=plain -f dockerfile-kde-variant -t xfe-kde:latest .
@@ -94,6 +114,11 @@ Firefox is automatically downloaded for the detected architecture.
 docker run -d --name xfe-kde -p 3389:3389 xfe-kde:latest
 ```
 
+### Βασική Εκτέλεση (Ελληνικά)
+
+```bash
+docker run -d --name xfe-kde -p 3389:3389 xfe-kde:latest
+```
 ### Run with All Ports Exposed
 
 ```bash
@@ -146,6 +171,19 @@ docker run -d \
   -e TZ=Europe/Berlin \
   xfe-kde:latest
 ```
+
+### Εκτέλεση με μεταβλητές περιβάλλοντος (Ελληνικά)
+
+```bash
+docker run -d \
+  --name xfe-kde \
+  -p 3389:3389 \
+  -e LANG=de_DE.UTF-8 \
+  -e TZ=Europe/Berlin \
+  xfe-kde:latest
+```
+
+Όλες οι παραπάνω παραλλαγές εκτέλεσης λειτουργούν με τον ίδιο τρόπο και μπορείτε να τις χρησιμοποιήσετε και στα Ελληνικά με τον ίδιο ακριβώς κώδικα. Απλά αντικαταστήστε τις παραμέτρους (όπως tags, ports, volumes) ανάλογα με τις ανάγκες σας.
 
 ---
 
