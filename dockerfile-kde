@@ -71,6 +71,13 @@ fi
 export LANG=en_US.UTF-8
 export DISPLAY=:10
 export XRDPSCREENSIZE=1920x1080
+export XDG_RUNTIME_DIR=/run/user/1000
+export XDG_SESSION_TYPE=x11
+
+# create XDG_RUNTIME_DIR if needed
+mkdir -p "${XDG_RUNTIME_DIR}"
+chown kdeuser:kdeuser "${XDG_RUNTIME_DIR}"
+chmod 700 "${XDG_RUNTIME_DIR}"
 
 # ensure dbus
 [ -d /run/dbus ] || mkdir -p /run/dbus
@@ -152,13 +159,14 @@ RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
     sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 # runtime directories and permissions
-RUN mkdir -p /run/sshd /tmp/.X11-unix /var/log/xrdp /var/run/xrdp /var/log/samba && \
+RUN mkdir -p /run/sshd /tmp/.X11-unix /var/log/xrdp /var/run/xrdp /var/log/samba /run/user/1000 && \
     chmod 0755 /run/sshd && chmod 1777 /tmp/.X11-unix && \
     touch /home/kdeuser/.Xauthority && chown kdeuser:kdeuser /home/kdeuser/.Xauthority && \
     chown -R root:root /run/sshd || true && \
     chown -R root:root /var/log/xrdp || true && chmod 0777 /var/log/xrdp || true && \
     chown -R root:root /var/run/xrdp || true && chmod 0777 /var/run/xrdp || true && \
-    chown -R kdeuser:kdeuser /home/kdeuser && chmod 700 /home/kdeuser || true
+    chown -R kdeuser:kdeuser /home/kdeuser && chmod 700 /home/kdeuser || true && \
+    chown kdeuser:kdeuser /run/user/1000 && chmod 700 /run/user/1000 || true
 
 # Supervisor config
 RUN mkdir -p /etc/supervisor
